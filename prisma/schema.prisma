@@ -1,0 +1,248 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrgType {
+  FABRICANTE
+  IMPORTADOR
+  CONCESIONARIO
+  TALLER
+  ENTIDAD_TECNICA
+  RECICLADOR
+  AUTORIDAD
+}
+
+enum Role {
+  OPERADOR
+  CONCESIONARIO
+  TALLER
+  ENTIDAD_TECNICA
+  RECICLADOR
+  AUTORIDAD
+}
+
+enum BatteryState {
+  EN_USO
+  EN_SERVICIO
+  SEGUNDA_VIDA
+  BAJA_SOLICITADA
+  RECICLADA
+}
+
+enum ReviewStatus {
+  PENDIENTE
+  VALIDADO
+  RECHAZADO
+}
+
+model Organization {
+  id           String   @id @default(cuid())
+  name         String
+  type         OrgType
+  cuit         String   @unique
+  enabled      Boolean  @default(true)
+  /// Código de operador responsable (4 dígitos) usado en el passportId. Solo fabricantes/importadores.
+  operatorCode String?  @unique
+  /// Último número secuencial asignado a pasaportes de este operador.
+  lastSerial   Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  users               User[]
+  models              BatteryModel[]
+  operatedBatteries   Battery[]           @relation("operator")
+  createdBatteries    Battery[]           @relation("creatorOrg")
+  soldBatteries       Battery[]           @relation("dealerOrg")
+  servicingBatteries  Battery[]           @relation("serviceOrg")
+  healthCertificates  HealthCertificate[]
+  recyclerReceipts    RecyclerReceipt[]
+  events              BatteryEvent[]
+}
+
+model User {
+  id             String    @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  role           Role
+  name           String
+  phone          String    @unique
+  passwordHash   String
+  active         Boolean   @default(true)
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  createdAt      DateTime  @default(now())
+
+  events     BatteryEvent[]
+  auditLogs  AuditLog[]
+}
+
+model BatteryModel {
+  id                     String   @id @default(cuid())
+  operatorId             String
+  operator               Organization @relation(fields: [operatorId], references: [id])
+  brand                  String
+  name                   String
+  chemistry              String
+  nominalCapacityKwh     Float
+  nominalVoltageV        Float
+  massKg                 Float
+  dismantlingFileUrl     String?
+  carbonFootprintKgCo2e  Float?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  batteries Battery[]
+
+  @@unique([operatorId, name])
+}
+
+model Battery {
+  id                 String       @id @default(cuid())
+  passportId         String       @unique
+  modelId            String
+  model              BatteryModel @relation(fields: [modelId], references: [id])
+  serialNumber       String
+  manufactureDate    DateTime
+  state              BatteryState
+  operatorId         String
+  operator           Organization @relation("operator", fields: [operatorId], references: [id])
+  createdByOrgId     String
+  createdByOrg       Organization @relation("creatorOrg", fields: [createdByOrgId], references: [id])
+  dealerOrgId        String?
+  dealerOrg          Organization? @relation("dealerOrg", fields: [dealerOrgId], references: [id])
+  /// Taller con intervención abierta (mientras está EN_SERVICIO o en trámite de baja).
+  serviceOrgId       String?
+  serviceOrg         Organization? @relation("serviceOrg", fields: [serviceOrgId], references: [id])
+  previousBatteryId  String?      @unique
+  previousBattery    Battery?     @relation("secondLife", fields: [previousBatteryId], references: [id])
+  nextBattery        Battery?     @relation("secondLife")
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  vehicleLinks       BatteryVehicleLink[]
+  events             BatteryEvent[]
+  healthCertificates HealthCertificate[]
+  recyclerReceipts   RecyclerReceipt[]
+
+  @@unique([modelId, serialNumber])
+  @@index([state])
+}
+
+model Vehicle {
+  id        String   @id @default(cuid())
+  domain    String?  @unique
+  vin       String   @unique
+  brand     String
+  model     String
+  year      Int
+  createdAt DateTime @default(now())
+
+  batteryLinks BatteryVehicleLink[]
+}
+
+model BatteryVehicleLink {
+  id        String    @id @default(cuid())
+  batteryId String
+  battery   Battery   @relation(fields: [batteryId], references: [id])
+  vehicleId String
+  vehicle   Vehicle   @relation(fields: [vehicleId], references: [id])
+  from      DateTime
+  to        DateTime?
+
+  @@index([batteryId])
+  @@index([vehicleId])
+}
+
+/// Registro append-only. Cada evento encadena el hash del anterior de la misma batería.
+model BatteryEvent {
+  id             String       @id @default(cuid())
+  batteryId      String
+  battery        Battery      @relation(fields: [batteryId], references: [id])
+  type           String
+  actorId        String?
+  actor          User?        @relation(fields: [actorId], references: [id])
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  occurredAt     DateTime
+  data           Json
+  prevHash       String
+  hash           String       @unique
+  seq            Int
+
+  @@unique([batteryId, seq])
+}
+
+model HealthCertificate {
+  id                    String       @id @default(cuid())
+  batteryId             String
+  battery               Battery      @relation(fields: [batteryId], references: [id])
+  workshopId            String
+  workshop              Organization @relation(fields: [workshopId], references: [id])
+  sohPercent            Float
+  measuredCapacityKwh   Float
+  internalResistanceMOhm Float
+  testMethod            String
+  reusable              Boolean
+  fileUrl               String?
+  status                ReviewStatus @default(PENDIENTE)
+  validatedById         String?
+  reviewedAt            DateTime?
+  rejectionReason       String?
+  validUntil            DateTime?
+  createdAt             DateTime     @default(now())
+
+  @@index([batteryId])
+  @@index([status])
+}
+
+model RecyclerReceipt {
+  id              String       @id @default(cuid())
+  batteryId       String
+  battery         Battery      @relation(fields: [batteryId], references: [id])
+  recyclerId      String
+  recycler        Organization @relation(fields: [recyclerId], references: [id])
+  receivedAt      DateTime
+  receivedMassKg  Float
+  manifestNumber  String
+  fileUrl         String?
+  status          ReviewStatus @default(PENDIENTE)
+  validatedById   String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime     @default(now())
+
+  @@index([batteryId])
+  @@index([status])
+}
+
+/// Cadena global de auditoría (SHA-256 encadenado).
+model AuditLog {
+  id         String   @id @default(cuid())
+  seq        Int      @unique
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String
+  entity     String
+  entityId   String?
+  batteryId  String?
+  occurredAt DateTime
+  ip         String?
+  details    Json
+  prevHash   String
+  hash       String   @unique
+
+  @@index([batteryId])
+}
+
+model IdempotencyKey {
+  key        String   @id
+  userId     String
+  route      String
+  statusCode Int
+  response   Json
+  createdAt  DateTime @default(now())
+}
