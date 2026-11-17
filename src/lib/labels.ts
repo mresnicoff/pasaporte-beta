@@ -50,8 +50,18 @@ export const EVENT_LABEL: Record<string, string> = {
   RECICLADO: "Pasaporte cerrado: batería reciclada",
 };
 
-export const fmtDate = (d: Date | string | null | undefined) =>
-  d ? new Date(d).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" }) : "—";
+// Las fechas cargadas solo con día (p. ej. "2026-10-01") se guardan como medianoche UTC.
+// Si se mostraran en horario de Buenos Aires retrocederían un día, así que se muestran en UTC.
+const isDateOnly = (dt: Date) =>
+  dt.getUTCHours() === 0 && dt.getUTCMinutes() === 0 && dt.getUTCSeconds() === 0 && dt.getUTCMilliseconds() === 0;
+
+export const fmtDate = (d: Date | string | null | undefined) => {
+  if (!d) return "—";
+  const dt = new Date(d);
+  return dt.toLocaleDateString("es-AR", {
+    timeZone: isDateOnly(dt) ? "UTC" : "America/Argentina/Buenos_Aires",
+  });
+};
 export const fmtDateTime = (d: Date | string | null | undefined) =>
   d
     ? new Date(d).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })
