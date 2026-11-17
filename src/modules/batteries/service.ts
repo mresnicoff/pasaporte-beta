@@ -30,6 +30,8 @@ export async function createModel(
   if (!org.operatorCode) throw forbidden("Su organización no tiene código de operador responsable");
   const dismantlingFileUrl = dismantlingFile ? await saveFile(dismantlingFile, "desmontaje") : null;
   return prisma.$transaction(async (tx) => {
+    const sameGtin = await tx.batteryModel.findUnique({ where: { gtin: input.gtin } });
+    if (sameGtin) throw conflict(`El GTIN ${input.gtin} ya está registrado en otro modelo`, "DUPLICATE");
     const model = await tx.batteryModel.create({
       data: { ...input, operatorId: org.id, dismantlingFileUrl },
     });
@@ -45,15 +47,6 @@ export async function createModel(
 
 // ---------- Alta ----------
 
-async function nextPassportId(tx: Tx, operatorId: string) {
-  const org = await tx.organization.update({
-    where: { id: operatorId },
-    data: { lastSerial: { increment: 1 } },
-  });
-  if (!org.operatorCode) throw badRequest("El operador no tiene código asignado");
-  return buildPassportId(org.operatorCode, org.lastSerial);
-}
-
 export async function createBattery(actor: ActorU, input: z.infer<typeof createBatterySchema>) {
   return prisma.$transaction(async (tx) => createBatteryTx(tx, actor, input));
 }
@@ -64,17 +57,18 @@ export async function createBatteryTx(tx: Tx, actor: ActorU, input: z.infer<type
   if (actor.user.role === "OPERADOR" && model.operatorId !== actor.user.organizationId)
     throw forbidden("Solo puede dar de alta baterías de sus propios modelos");
   const dup = await tx.battery.findUnique({
-    where: { modelId_serialNumber: { modelId: model.id, serialNumber: input.serialNumber } },
+    where: { gtin_serialNumber: { gtin: model.gtin, serialNumber: input.serialNumber } },
   });
-  if (dup) throw conflict(`El número de serie ${input.serialNumber} ya está registrado para este modelo`, "DUPLICATE");
+  if (dup)
+    throw conflict(`La combinación GTIN ${model.gtin} + serie ${input.serialNumber} ya está registrada`, "DUPLICATE");
   if (input.manufactureDate > new Date()) throw badRequest("La fecha de fabricación no puede ser futura");
 
-  const passportId = await nextPassportId(tx, model.operatorId);
   return createWithEvent(tx, {
     type: "ALTA",
     actor,
     battery: {
-      passportId,
+      passportId: buildPassportId(model.gtin, input.serialNumber),
+      gtin: model.gtin,
       modelId: model.id,
       serialNumber: input.serialNumber,
       manufactureDate: input.manufactureDate,
@@ -168,6 +162,12 @@ export async function requestSecondLife(actor: ActorU, batteryId: string, input:
     const op = await tx.organization.findUnique({ where: { id: operatorId } });
     if (!op?.operatorCode) throw badRequest("El nuevo operador responsable no es válido");
 
+    const dupSl = await tx.battery.findUnique({
+      where: { gtin_serialNumber: { gtin: input.gtin, serialNumber: input.serialNumber } },
+    });
+    if (dupSl)
+      throw conflict(`La combinación GTIN ${input.gtin} + serie ${input.serialNumber} ya está registrada`, "DUPLICATE");
+
     const { battery } = await recordEvent(tx, {
       batteryId,
       type: "SEGUNDA_VIDA",
@@ -175,14 +175,14 @@ export async function requestSecondLife(actor: ActorU, batteryId: string, input:
       data: { application: input.application, newOperator: op.name },
       update: { serviceOrgId: null },
     });
-    const passportId = await nextPassportId(tx, operatorId);
     const created = await createWithEvent(tx, {
       type: "ALTA_SEGUNDA_VIDA",
       actor,
       battery: {
-        passportId,
+        passportId: buildPassportId(input.gtin, input.serialNumber),
+        gtin: input.gtin,
         modelId: original.modelId,
-        serialNumber: `${original.serialNumber}-SV`,
+        serialNumber: input.serialNumber,
         manufactureDate: original.manufactureDate,
         operatorId,
         createdByOrgId: actor.user.organizationId,

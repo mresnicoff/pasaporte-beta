@@ -19,7 +19,7 @@ export default async function AltaPage() {
       <div className="page-head">
         <div>
           <h1>{isOperator ? "Modelos y alta de baterías" : "Alta de baterías"}</h1>
-          <p className="muted">El identificador del pasaporte se asigna en el servidor y no se puede modificar.</p>
+          <p className="muted">El identificador de cada batería es el GTIN de su modelo más el número de serie impresos en la etiqueta. El sistema no los genera.</p>
         </div>
       </div>
 
@@ -40,15 +40,15 @@ export default async function AltaPage() {
                   {models.map((m) => (
                     <option key={m.id} value={m.id}>
                       {isOperator ? "" : `${m.operator.name} · `}
-                      {m.brand} {m.name} ({m.nominalCapacityKwh} kWh, {m.chemistry})
+                      {m.brand} {m.name} · GTIN {m.gtin} ({m.nominalCapacityKwh} kWh, {m.chemistry})
                     </option>
                   ))}
                 </select>
               </label>
               <div className="fields">
                 <label>
-                  Número de serie
-                  <input name="serialNumber" required maxLength={60} />
+                  Número de serie (como figura en la etiqueta)
+                  <input name="serialNumber" required maxLength={20} pattern="[A-Za-z0-9]{1,20}" title="Hasta 20 letras o dígitos, sin espacios" />
                 </label>
                 <label>
                   Fecha de fabricación
@@ -77,6 +77,10 @@ export default async function AltaPage() {
             <h2>Nuevo modelo</h2>
             <ApiForm action="/api/models" submitLabel="Guardar modelo" multipart successMessage="Modelo {name} creado">
               <div className="fields">
+                <label>
+                  GTIN del modelo (8 a 14 dígitos)
+                  <input name="gtin" required inputMode="numeric" pattern="[0-9]{8,14}" className="mono" placeholder="07612345000011" />
+                </label>
                 <label>
                   Marca
                   <input name="brand" required defaultValue={user.organization.name.split(" ")[0]} />
@@ -126,6 +130,7 @@ export default async function AltaPage() {
                 <thead>
                   <tr>
                     <th>Modelo</th>
+                    <th>GTIN</th>
                     <th>Química</th>
                     <th>kWh</th>
                     <th>Unidades</th>
@@ -137,6 +142,7 @@ export default async function AltaPage() {
                       <td>
                         {m.brand} {m.name}
                       </td>
+                      <td className="mono">{m.gtin}</td>
                       <td>{m.chemistry}</td>
                       <td>{m.nominalCapacityKwh}</td>
                       <td>{m._count.batteries}</td>

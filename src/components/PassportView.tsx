@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { EVENT_LABEL, REVIEW_LABEL, STATE_LABEL, fmtDate, fmtDateTime } from "@/lib/labels";
+import { parseIdentifier } from "@/lib/passport-id";
 import { ACCESS_LEVEL_LABEL, type AccessLevel } from "@/modules/passport/projection";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -8,6 +9,7 @@ type Doc = Record<string, any>;
 /** Vista del pasaporte. Solo muestra los bloques que trae el documento ya proyectado por nivel. */
 export function PassportView({ doc, level, linkBase = "/p" }: { doc: Doc; level: AccessLevel; linkBase?: string }) {
   const m = doc.model;
+  const ident = parseIdentifier(String(doc.passportId));
   return (
     <>
       <div className="card">
@@ -17,7 +19,7 @@ export function PassportView({ doc, level, linkBase = "/p" }: { doc: Doc; level:
           <div style={{ flex: 1, minWidth: 240 }}>
             <div className="muted small">Pasaporte digital de batería</div>
             <h1 className="mono" style={{ fontSize: "1.25rem", overflowWrap: "anywhere" }}>
-              {doc.passportId}
+              {ident ? `GTIN ${ident.gtin} · Serie ${ident.serial}` : doc.passportId}
             </h1>
             <p>
               {m.brand} {m.name} · {doc.manufacturer}

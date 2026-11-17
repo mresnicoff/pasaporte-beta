@@ -9,14 +9,14 @@ export default async function SalePage() {
     <div className="narrow">
       <h1>Registrar venta</h1>
       <p className="muted">
-        Escanee o ingrese el identificador de la batería y los datos del vehículo. El sistema crea el vínculo y el
+        Escanee el QR o ingrese el GTIN y el número de serie de la batería (GTIN-SERIE) y los datos del vehículo. El sistema crea el vínculo y el
         evento de venta. No se registran datos del comprador.
       </p>
       <div className="card">
         <ApiForm action="/api/sales" submitLabel="Registrar venta" redirectTo="/panel/baterias/{batteryId}">
           <label>
-            Identificador de la batería
-            <input name="passportId" required className="mono" placeholder="AR-BP-0042-000000001-X" />
+            GTIN y número de serie (GTIN-SERIE)
+            <input name="passportId" required className="mono" placeholder="07612345000011-VX602026001000" />
           </label>
           <div className="fields">
             <label>

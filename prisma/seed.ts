@@ -9,6 +9,7 @@ import bcrypt from "bcryptjs";
 import type { OrgType, Role } from "@prisma/client";
 import { prisma } from "../src/lib/db";
 import type { Actor, SessionUser } from "../src/lib/auth";
+import { gtinCheckDigit } from "../src/lib/passport-id";
 import {
   closeIntervention,
   createBattery,
@@ -33,6 +34,12 @@ const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
 const pick = <T,>(xs: T[]) => xs[Math.floor(rnd() * xs.length)];
 const between = (a: number, b: number) => a + rnd() * (b - a);
 const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/** GTIN-14 de ejemplo con dígito de control correcto (prefijo ficticio 0779100). */
+const gtin = (n: number) => {
+  const body = "0779100" + String(n).padStart(6, "0");
+  return body + gtinCheckDigit(body);
+};
 
 const VIN_CHARS = "ABCDEFGHJKLMNPRSTUVWXYZ0123456789";
 const vin = () => Array.from({ length: 17 }, () => pick([...VIN_CHARS])).join("");
@@ -114,19 +121,19 @@ async function main() {
 
   console.log("Modelos…");
   const vx60 = await createModel(A.voltra, {
-    brand: "Voltra", name: "VX-60 Urbana", chemistry: "LFP",
+    gtin: gtin(1), brand: "Voltra", name: "VX-60 Urbana", chemistry: "LFP",
     nominalCapacityKwh: 60, nominalVoltageV: 400, massKg: 410, carbonFootprintKgCo2e: 4800,
   });
   const vx85 = await createModel(A.voltra, {
-    brand: "Voltra", name: "VX-85 Ruta", chemistry: "NMC",
+    gtin: gtin(2), brand: "Voltra", name: "VX-85 Ruta", chemistry: "NMC",
     nominalCapacityKwh: 85, nominalVoltageV: 800, massKg: 520, carbonFootprintKgCo2e: 7900,
   });
   const ic40 = await createModel(A.importcell, {
-    brand: "ImportCell", name: "IC-40 City", chemistry: "LFP",
+    gtin: gtin(3), brand: "ImportCell", name: "IC-40 City", chemistry: "LFP",
     nominalCapacityKwh: 40, nominalVoltageV: 350, massKg: 290,
   });
   const ic4 = await createModel(A.importcell, {
-    brand: "ImportCell", name: "IC-M4 Moto", chemistry: "NMC",
+    gtin: gtin(4), brand: "ImportCell", name: "IC-M4 Moto", chemistry: "NMC",
     nominalCapacityKwh: 4.2, nominalVoltageV: 72, massKg: 28,
   });
   const models = [
@@ -144,7 +151,7 @@ async function main() {
     const date = new Date(Date.UTC(year, Math.floor(rnd() * 12), 1 + Math.floor(rnd() * 27)));
     const { battery } = await createBattery(op, {
       modelId: m.id,
-      serialNumber: `${prefix}-${year}-${String(1000 + i).padStart(6, "0")}`,
+      serialNumber: `${prefix}${year}${String(1000 + i).padStart(6, "0")}`,
       manufactureDate: date,
     });
     batteries.push({
@@ -193,7 +200,11 @@ async function main() {
   console.log("Segunda vida…");
   for (const idx of [14, 15]) {
     const b = await certify(idx, A.electro, round1(between(68, 76)), true);
-    await requestSecondLife(A.electro, b.id, { application: "Almacenamiento estacionario para comercio" });
+    await requestSecondLife(A.electro, b.id, {
+      application: "Almacenamiento estacionario para comercio",
+      gtin: gtin(100 + idx),
+      serialNumber: `SV${String(idx).padStart(6, "0")}`,
+    });
   }
 
   console.log("Bajas y reciclaje…");
@@ -228,7 +239,7 @@ async function main() {
 
   const counts = await prisma.battery.groupBy({ by: ["state"], _count: true });
   console.log("Listo:", Object.fromEntries(counts.map((c) => [c.state, c._count])));
-  console.log(`Ejemplo de pasaporte público: /p/${batteries[0].passportId}`);
+  console.log(`Ejemplo de pasaporte público: /01/${batteries[0].passportId.replace("-", "/21/")}`);
 }
 
 main()

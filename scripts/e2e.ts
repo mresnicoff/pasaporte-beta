@@ -4,7 +4,7 @@
  *   npm run e2e            (BASE_URL=http://localhost:3000 por defecto)
  */
 import { prisma } from "../src/lib/db";
-import { isValidPassportId } from "../src/lib/passport-id";
+import { gtinCheckDigit, isValidPassportId, publicPath } from "../src/lib/passport-id";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const PASSWORD = "beta1234";
@@ -81,22 +81,27 @@ async function main() {
   console.log("\n— Etapa 2: pasaporte, identificador y QR");
   const model = await prisma.batteryModel.findFirst({ where: { name: "VX-60 Urbana" } });
   const created = await voltra.req("POST", "/api/batteries", {
-    modelId: model!.id, serialNumber: `E2E-${Date.now()}`, manufactureDate: "2026-01-15",
+    modelId: model!.id, serialNumber: `E2E${Date.now()}`, manufactureDate: "2026-01-15",
   }, { "Idempotency-Key": "e2e-alta-1" + Date.now() });
   check("alta devuelve passportId válido", created.status === 201 && isValidPassportId(created.data.passportId), created);
   const pid: string = created.data.passportId;
-  const html = await pub.req("GET", `/p/${pid}`, undefined, { accept: "text/html" });
-  check("/p/{id} devuelve HTML a un navegador", html.status === 200 && html.type.includes("text/html"), html.status);
-  const asJson = await pub.req("GET", `/p/${pid}`, undefined, { accept: "application/json" });
-  check("/p/{id} devuelve JSON si se pide", asJson.status === 200 && asJson.data.passportId === pid, asJson.status);
+  const [pg, ps] = pid.split("-");
+  const html = await pub.req("GET", `/01/${pg}/21/${ps}`, undefined, { accept: "text/html" });
+  check("/01/{GTIN}/21/{serie} devuelve HTML a un navegador", html.status === 200 && html.type.includes("text/html"), html.status);
+  const asJson = await pub.req("GET", `/01/${pg}/21/${ps}`, undefined, { accept: "application/json" });
+  check("/01/{GTIN}/21/{serie} devuelve JSON si se pide", asJson.status === 200 && asJson.data.passportId === pid, asJson.status);
+  const unknown = await pub.req("GET", `/01/${pg}/21/NOEXISTE999`, undefined, { accept: "application/json" });
+  check("batería no registrada → 404", unknown.status === 404, unknown.status);
   const qr = await pub.req("GET", `/api/qr/${pid}`);
   check("QR en PNG", qr.status === 200 && qr.type === "image/png");
-  const typo = pid.slice(0, -1) + (pid.endsWith("0") ? "1" : "0");
-  const typoRes = await pub.req("GET", `/api/qr/${typo}`);
-  check("dígito verificador detecta error de tipeo", typoRes.status === 404, typoRes.status);
+  const typoGtin = pg.slice(0, 12) + (pg[12] === "0" ? "1" : "0") + pg[13];
+  const typoRes = await pub.req("GET", `/api/qr/${typoGtin}-${ps}`);
+  check("el dígito de control del GTIN detecta un error de tipeo", typoRes.status === 404, typoRes.status);
+  const qrUrl = publicPath(pid);
+  check("la dirección pública es /01/{GTIN}/21/{serie}", qrUrl === `/01/${pg}/21/${ps}`, qrUrl);
   const dupKey = "e2e-dup-" + Date.now();
-  const d1 = await voltra.req("POST", "/api/batteries", { modelId: model!.id, serialNumber: `E2E-IDEM-${Date.now()}`, manufactureDate: "2026-01-15" }, { "Idempotency-Key": dupKey });
-  const d2 = await voltra.req("POST", "/api/batteries", { modelId: model!.id, serialNumber: `E2E-IDEM-${Date.now()}`, manufactureDate: "2026-01-15" }, { "Idempotency-Key": dupKey });
+  const d1 = await voltra.req("POST", "/api/batteries", { modelId: model!.id, serialNumber: `E2EIDEM${Date.now()}`, manufactureDate: "2026-01-15" }, { "Idempotency-Key": dupKey });
+  const d2 = await voltra.req("POST", "/api/batteries", { modelId: model!.id, serialNumber: `E2EIDEM${Date.now()}`, manufactureDate: "2026-01-15" }, { "Idempotency-Key": dupKey });
   check("idempotencia: el reintento devuelve el mismo pasaporte", d1.data.passportId === d2.data.passportId, [d1.data, d2.data]);
 
   console.log("\n— Etapa 3: venta y CSV");
@@ -110,7 +115,7 @@ async function main() {
   check("otro concesionario no puede modificarla → 403", steal.status === 403, steal);
   const csv = new FormData();
   csv.set("file", new Blob([
-    `modelo,numero_serie,fecha_fabricacion\nVX-60 Urbana,CSV-${Date.now()}-1,2026-02-01\nModelo Fantasma,CSV-X,2026-02-01\nVX-60 Urbana,,2026-02-01\nVX-60 Urbana,CSV-${Date.now()}-2,fecha-mala\n`,
+    `modelo,numero_serie,fecha_fabricacion\nVX-60 Urbana,CSV${Date.now()}A,2026-02-01\nModelo Fantasma,CSVX,2026-02-01\nVX-60 Urbana,,2026-02-01\nVX-60 Urbana,CSV${Date.now()}B,fecha-mala\n`,
   ], { type: "text/csv" }), "lote.csv");
   const imp = await voltra.req("POST", "/api/batteries/import", csv);
   check("CSV: informe por fila (1 válida, 3 inválidas)", imp.data.created === 1 && imp.data.failed === 3, imp.data);
@@ -137,7 +142,11 @@ async function main() {
   check("PDF del certificado", pdf.status === 200 && pdf.type === "application/pdf", pdf.status);
 
   console.log("\n— Etapa 5: segunda vida y baja");
-  const sv = await shop.req("POST", `/api/batteries/${bid}/second-life`, { application: "Estacionario" });
+  const slBody = (n: number) => {
+    const body = "0779100" + String(900 + n).padStart(6, "0");
+    return { application: "Estacionario", gtin: body + gtinCheckDigit(body), serialNumber: `E2ESV${Date.now()}`.slice(0, 20) };
+  };
+  const sv = await shop.req("POST", `/api/batteries/${bid}/second-life`, slBody(1));
   check("segunda vida con certificado 'no reutilizable' → 409", sv.status === 409, sv);
   const early2 = await eco.req("POST", `/api/batteries/${bid}/recycler-receipt`, { receivedAt: "2026-11-01", receivedMassKg: 400, manifestNumber: "MAN-E2E-0" });
   check("reciclador antes de la baja → 409", early2.status === 409, early2);
@@ -159,7 +168,7 @@ async function main() {
   await shop.req("POST", `/api/batteries/${svTarget!.id}/intervention`, { reason: "Evaluación de segunda vida" });
   const c2 = await shop.req("POST", `/api/batteries/${svTarget!.id}/health-certificates`, { sohPercent: 72, measuredCapacityKwh: 43, internalResistanceMOhm: 120, testMethod: "Descarga C/3", reusable: true });
   await cent.req("POST", `/api/health-certificates/${c2.data.id}/validate`, { approve: true });
-  const sv2 = await shop.req("POST", `/api/batteries/${svTarget!.id}/second-life`, { application: "Almacenamiento estacionario" });
+  const sv2 = await shop.req("POST", `/api/batteries/${svTarget!.id}/second-life`, slBody(2));
   check("segunda vida crea pasaporte nuevo vinculado", sv2.status === 201 && isValidPassportId(sv2.data.newPassportId) && sv2.data.originalState === "SEGUNDA_VIDA", sv2);
   const newDoc = await pub.req("GET", `/api/p/${sv2.data.newPassportId}`);
   check("el nuevo pasaporte refiere al original", newDoc.data.previousPassportId === svTarget!.passportId, newDoc.data);

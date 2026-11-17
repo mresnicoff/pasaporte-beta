@@ -133,6 +133,16 @@ export default async function BatteryDetail({ params }: { params: Promise<{ id: 
               Aplicación de segunda vida
               <input name="application" required placeholder="Almacenamiento estacionario" />
             </label>
+            <div className="fields">
+              <label>
+                GTIN del nuevo pasaporte
+                <input name="gtin" required inputMode="numeric" pattern="[0-9]{8,14}" className="mono" placeholder="07612345000028" />
+              </label>
+              <label>
+                Número de serie nuevo
+                <input name="serialNumber" required maxLength={20} pattern="[A-Za-z0-9]{1,20}" title="Hasta 20 letras o dígitos" />
+              </label>
+            </div>
             <label>
               Nuevo operador responsable
               <select name="newOperatorId" defaultValue={battery.operatorId}>

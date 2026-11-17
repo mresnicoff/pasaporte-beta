@@ -1,12 +1,14 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
-import { normalizePassportId } from "@/lib/passport-id";
+import { normalizePassportId, publicPath } from "@/lib/passport-id";
 
 async function lookup(formData: FormData) {
   "use server";
-  const id = normalizePassportId(String(formData.get("id") ?? ""));
-  if (id) redirect(`/p/${encodeURIComponent(id)}`);
+  const raw = String(formData.get("id") ?? "");
+  const path = publicPath(normalizePassportId(raw));
+  if (!path) notFound();
+  redirect(path);
 }
 
 export default async function Home() {
@@ -19,11 +21,11 @@ export default async function Home() {
         </div>
         <h1>Pasaporte digital de baterías</h1>
         <p>
-          Cada batería de tracción tiene un pasaporte con su identificador, su código QR y el registro auditable de
+          Cada batería de tracción tiene un pasaporte identificado por el GTIN de su modelo y su número de serie, con su código QR y el registro auditable de
           su ciclo de vida: venta, estado de salud, segunda vida y reciclaje.
         </p>
         <form action={lookup} className="actions" style={{ marginTop: "1rem" }}>
-          <input name="id" placeholder="AR-BP-0042-000000001-X" aria-label="Identificador del pasaporte" required />
+          <input name="id" placeholder="GTIN-SERIE, por ejemplo 07612345000011-VX602026001000" aria-label="Identificador del pasaporte (GTIN y número de serie)" required />
           <button className="secondary">Consultar pasaporte</button>
         </form>
       </div>

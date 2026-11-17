@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import type { Actor, SessionUser } from "@/lib/auth";
 import { auditRead } from "@/modules/audit/service";
 import { verifyBatteryChain } from "@/modules/events/lifecycle";
+import { publicPath } from "@/lib/passport-id";
 
 export type AccessLevel = "PUBLICO" | "INTERES_LEGITIMO" | "AUTORIDAD";
 
@@ -34,9 +35,10 @@ export async function accessLevelFor(user: SessionUser | null, b: Battery): Prom
   }
 }
 
+/** Dirección que va codificada en el QR: {PUBLIC_BASE_URL}/01/{GTIN}/21/{serie} (GS1 Digital Link). */
 export function publicUrl(passportId: string) {
   const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-  return `${base}/p/${passportId}`;
+  return `${base}${publicPath(passportId) ?? ""}`;
 }
 
 /**
@@ -63,6 +65,7 @@ export async function getPassportDocument(passportId: string, actor: Actor, opts
 
   const doc: Record<string, unknown> = {
     passportId: b.passportId,
+    gtin: b.gtin,
     accessLevel: level,
     url: publicUrl(b.passportId),
     state: b.state,

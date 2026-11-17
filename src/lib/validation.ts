@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isValidPassportId, normalizePassportId } from "./passport-id";
+import { isValidPassportId, normalizeGtin, normalizePassportId, normalizeSerial, SERIAL_MAX } from "./passport-id";
 
 /** Esquemas compartidos entre cliente y servidor. */
 
@@ -18,7 +18,28 @@ const num = (min: number, max: number) => z.coerce.number().min(min).max(max);
 const optionalNum = (min: number, max: number) =>
   z.preprocess((v) => (v === "" || v === null ? undefined : v), z.coerce.number().min(min).max(max).optional());
 
+export const gtinSchema = z
+  .string()
+  .trim()
+  .transform((s, ctx) => {
+    const g = normalizeGtin(s);
+    if (!g) ctx.addIssue({ code: "custom", message: "GTIN inválido: 8 a 14 dígitos con dígito de control correcto" });
+    return g ?? s;
+  });
+
+export const serialSchema = z
+  .string()
+  .transform(normalizeSerial)
+  .pipe(
+    z
+      .string()
+      .min(1, "Falta el número de serie")
+      .max(SERIAL_MAX, `Máximo ${SERIAL_MAX} caracteres`)
+      .regex(/^[A-Z0-9]+$/, "Solo letras y dígitos, sin espacios ni símbolos"),
+  );
+
 export const batteryModelSchema = z.object({
+  gtin: gtinSchema,
   brand: z.string().trim().min(1).max(80),
   name: z.string().trim().min(1).max(80),
   chemistry: z.string().trim().min(2).max(40),
@@ -37,7 +58,7 @@ const dateSchema = z.coerce.date().refine((d) => !isNaN(d.getTime()), "Fecha inv
 
 export const createBatterySchema = z.object({
   modelId: z.string().min(1),
-  serialNumber: z.string().trim().min(1).max(60),
+  serialNumber: serialSchema,
   manufactureDate: dateSchema,
 });
 
@@ -92,6 +113,8 @@ export const reviewSchema = z
 
 export const secondLifeSchema = z.object({
   application: z.string().trim().min(3).max(200),
+  gtin: gtinSchema,
+  serialNumber: serialSchema,
   newOperatorId: z.string().optional(),
 });
 
@@ -107,6 +130,6 @@ export const recyclerReceiptSchema = z.object({
 
 export const csvRowSchema = z.object({
   modelo: z.string().trim().min(1, "Falta el modelo"),
-  numero_serie: z.string().trim().min(1, "Falta el número de serie").max(60),
+  numero_serie: serialSchema,
   fecha_fabricacion: dateSchema,
 });

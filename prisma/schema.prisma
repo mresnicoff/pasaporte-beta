@@ -46,10 +46,8 @@ model Organization {
   type         OrgType
   cuit         String   @unique
   enabled      Boolean  @default(true)
-  /// Código de operador responsable (4 dígitos) usado en el passportId. Solo fabricantes/importadores.
+  /// Código administrativo del operador responsable (4 dígitos). Solo fabricantes/importadores.
   operatorCode String?  @unique
-  /// Último número secuencial asignado a pasaportes de este operador.
-  lastSerial   Int      @default(0)
   createdAt    DateTime @default(now())
 
   users               User[]
@@ -84,6 +82,8 @@ model BatteryModel {
   id                     String   @id @default(cuid())
   operatorId             String
   operator               Organization @relation(fields: [operatorId], references: [id])
+  /// GTIN-14 del modelo, emitido por la organización GS1 del fabricante. Va impreso en la etiqueta.
+  gtin                   String   @unique
   brand                  String
   name                   String
   chemistry              String
@@ -102,7 +102,10 @@ model BatteryModel {
 
 model Battery {
   id                 String       @id @default(cuid())
+  /// Clave interna derivada: {gtin}-{serialNumber}. La dirección pública es /01/{gtin}/21/{serialNumber}.
   passportId         String       @unique
+  /// GTIN-14 impreso en la etiqueta. Normalmente el del modelo; una batería de segunda vida lleva el suyo.
+  gtin               String
   modelId            String
   model              BatteryModel @relation(fields: [modelId], references: [id])
   serialNumber       String
@@ -128,7 +131,7 @@ model Battery {
   healthCertificates HealthCertificate[]
   recyclerReceipts   RecyclerReceipt[]
 
-  @@unique([modelId, serialNumber])
+  @@unique([gtin, serialNumber])
   @@index([state])
 }
 

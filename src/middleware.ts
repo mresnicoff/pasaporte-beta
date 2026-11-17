@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
- * Resolución del QR: la misma URL /p/{id} devuelve HTML a un navegador y el documento JSON
+ * Resolución del QR: la misma URL /01/{GTIN}/21/{serie} devuelve HTML a un navegador y el documento JSON
  * a un cliente que pida application/json.
  */
 export function middleware(req: NextRequest) {
@@ -14,4 +14,4 @@ export function middleware(req: NextRequest) {
   return NextResponse.next();
 }
 
-export const config = { matcher: ["/p/:path*"] };
+export const config = { matcher: ["/01/:path*", "/p/:path*"] };
